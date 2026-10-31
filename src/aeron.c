@@ -63,7 +63,11 @@ int Aeron_Init(const AeronConfig* config) {
 	}
 #endif
 
+#ifdef __SWITCH__
+	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+#else
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
+#endif
 		Aeron_LogError("aeron", "SDL_Init failed: %s", SDL_GetError());
 		return 0;
 	}
@@ -109,7 +113,9 @@ int Aeron_Init(const AeronConfig* config) {
 
 	Aeron_ControllersInit();
 	SDL_PumpEvents();
+#ifndef __SWITCH__
 	SDL_StartTextInput(g_aeron.window);
+#endif
 	Aeron_InitVfs(config);
 	Aeron_DebugUiInitInternal();
 	g_aeron.input.has_focus = 1;

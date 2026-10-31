@@ -14,7 +14,11 @@ int Aeron_ApplicationPath(const char* relative_path, char* out, size_t capacity)
 		SDL_SetError("invalid application-relative path");
 		return 0;
 	}
+#ifdef __SWITCH__
+	base_path = "/switch/openxw/";
+#else
 	base_path = SDL_GetBasePath();
+#endif
 	if (!base_path) {
 		return 0;
 	}

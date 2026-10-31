@@ -63,5 +63,7 @@ float4 main(float4 position : SV_Position, float2 texcoord : TEXCOORD0) : SV_Tar
 
 	float4 outputColor = color * tint + float4(bias.rgb * color.a, 0.0);
 	outputColor.rgb *= params.z;
+	if (bias.w == 2.0)
+		outputColor.rgb = AeronLinearToSrgb(saturate(outputColor.rgb));
 	return outputColor + float4(unusedValue, 0.0, 0.0, 0.0);
 }

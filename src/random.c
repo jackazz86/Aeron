@@ -7,6 +7,8 @@
 #include <windows.h>
 
 #include <bcrypt.h>
+#elif defined(__SWITCH__)
+#include <switch.h>
 #else
 #include <errno.h>
 #include <sys/random.h>
@@ -23,6 +25,8 @@ int Aeron_RandomBytes(void* data, size_t size) {
 #ifdef _WIN32
 		if (BCryptGenRandom(NULL, bytes, (ULONG)count, BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
 			return 0;
+#elif defined(__SWITCH__)
+		randomGet(bytes, count);
 #elif defined(__linux__)
 		ssize_t received = getrandom(bytes, count, GRND_NONBLOCK);
 		if (received < 0 && errno == EINTR)

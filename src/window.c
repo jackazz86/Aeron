@@ -341,6 +341,10 @@ int Aeron_SetRelativeMouseMode(int enabled) {
 		return 0;
 	}
 
+#ifdef __SWITCH__
+	g_aeron.relative_mouse_enabled = enabled;
+	return 1;
+#endif
 	if (!SDL_SetWindowRelativeMouseMode(g_aeron.window, enabled)) {
 		Aeron_LogWarn("aeron", "SDL_SetWindowRelativeMouseMode failed: %s", SDL_GetError());
 		return 0;

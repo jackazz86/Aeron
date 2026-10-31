@@ -13,7 +13,7 @@ option(AERON_HOST_TOOLS_ONLY "Build only tools that must run on the build host" 
 option(AERON_ENABLE_COMPAT "Build the Win32/DirectX-era API compatibility target" OFF)
 option(AERON_ENABLE_DPLAY "Build DirectPlay support in aeron_compat" OFF)
 
-find_package(SDL3 3.4 REQUIRED CONFIG COMPONENTS SDL3-shared)
+find_package(SDL3 REQUIRED CONFIG COMPONENTS SDL3-shared)
 
 set(AERON_YAML_SOURCES
     third_party/libyaml/src/api.c
@@ -343,6 +343,7 @@ set(AERON_SOURCES
     src/aeron.c
     src/atlas_pack.c
     src/audio.c
+    src/switch_input.c
     src/config_file.c
     src/dialog.c
     src/events.c

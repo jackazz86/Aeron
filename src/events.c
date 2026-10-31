@@ -129,12 +129,22 @@ int32_t Aeron_BeginFrame(void) {
 	 * frame work, so it never runs while a pass or the overlay is recording. */
 	Aeron_ApplyPendingOutputHdr();
 	Aeron_UpdateControllers(&g_aeron.input);
+#ifdef __SWITCH__
+	AeronSwitch_UpdateControllers(&g_aeron.input);
+#endif
 	Aeron_UpdatePresentationPixelSize();
 	SDL_GetWindowSize(g_aeron.window, &g_aeron.input.window_width, &g_aeron.input.window_height);
 	Aeron_ComputePresentationRect(g_aeron.input.window_width, g_aeron.input.window_height, &content_rect);
 	window_flags            = SDL_GetWindowFlags(g_aeron.window);
 	g_aeron.input.has_focus = (window_flags & SDL_WINDOW_INPUT_FOCUS) != 0;
 	has_platform_position   = Aeron_UpdateRawMouseFromPlatform(&g_aeron.input);
+#ifdef __SWITCH__
+	{
+		float dt = (float)(Aeron_NowUs() - g_aeron.last_frame_us) / 1000000.0f;
+		AeronSwitch_UpdateMouse(&g_aeron.input, dt > 0.1f ? 0.1f : dt);
+		has_platform_position = 1;
+	}
+#endif
 	has_mouse_position      = has_platform_position && Aeron_RawMouseInsideWindow(&g_aeron.input);
 	Aeron_UpdateLogicalMouse(&g_aeron.input, &content_rect, has_mouse_position);
 	Aeron_DebugUiFilterInput(&g_aeron.input);

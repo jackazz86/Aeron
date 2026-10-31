@@ -288,6 +288,10 @@ void Aeron_ControllersInit(void);
 void Aeron_ControllersShutdown(void);
 void Aeron_HandleControllerEvent(const SDL_Event* event);
 void Aeron_UpdateControllers(AeronInputSnapshot* input);
+#ifdef __SWITCH__
+void AeronSwitch_UpdateControllers(AeronInputSnapshot* input);
+void AeronSwitch_UpdateMouse(AeronInputSnapshot* input, float dt_sec);
+#endif
 
 void Aeron_InitVfs(const AeronConfig* config);
 void Aeron_ClearRenderSubmissions(void);

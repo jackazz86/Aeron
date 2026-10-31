@@ -1,6 +1,13 @@
 #include "gpu_debug.h"
 #include "internal.h"
 
+#ifndef SDL_PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN
+#define SDL_PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN "SDL.gpu.device.create.feature.clip_distance"
+#define SDL_PROP_GPU_DEVICE_CREATE_FEATURE_DEPTH_CLAMPING_BOOLEAN "SDL.gpu.device.create.feature.depth_clamping"
+#define SDL_PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN 	"SDL.gpu.device.create.feature.indirect_draw_first_instance"
+#define SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER "SDL.gpu.device.create.vulkan.options"
+#endif
+
 #include <limits.h>
 #include <stdarg.h>
 #include <string.h>
@@ -182,6 +189,14 @@ static AeronTextureFormat Aeron_FromSdlTextureFormat(SDL_GPUTextureFormat format
  * mode: HDR extended-linear when hdr is nonzero (no silent SDR fallback — the
  * caller keeps its previous mode on failure), otherwise SDR-linear with a
  * plain-SDR fallback. */
+
+/* Proxy-target state for swapchains that have no sRGB variant (Switch). */
+static SDL_GPUTexture*      s_proxy;
+static Uint32               s_proxy_w, s_proxy_h;
+static SDL_GPUTextureFormat s_real_format;
+static int                  s_proxy_mode;
+static int                  s_encode_output;
+
 static int Aeron_ConfigureSwapchain(int hdr) {
 	SDL_GPUSwapchainComposition composition;
 
@@ -226,7 +241,20 @@ static int Aeron_ConfigureSwapchain(int hdr) {
 		Aeron_SetRenderError("SDL returned an invalid swapchain texture format");
 		return 0;
 	}
+	s_real_format = g_aeron.swapchain_format;
+	s_proxy_mode  = 0;
+	if (!hdr && (s_real_format == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM ||
+				 s_real_format == SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM)) {
+		s_proxy_mode = 1;
+		g_aeron.swapchain_format = s_real_format == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM
+									   ? SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM_SRGB
+									   : SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB;
+	}
 	g_aeron.hdr_output_enabled = hdr;
+	Aeron_LogInfo("aeron", "swapchain composition=%d format=%d (linear-sdr supported=%d)",
+				  (int)composition, (int)g_aeron.swapchain_format,
+				  (int)SDL_WindowSupportsGPUSwapchainComposition(g_aeron.gpu_device, g_aeron.window,
+														 SDL_GPU_SWAPCHAINCOMPOSITION_SDR_LINEAR));
 	/* The debug overlay's ImGui pipeline is keyed on the swapchain
 	 * format; rebuild it on composition flips (no-op before its init). */
 	Aeron_DebugUiOnSwapchainFormatChanged(g_aeron.swapchain_format);
@@ -1373,7 +1401,7 @@ static int Aeron_DrawTexture(SDL_GPUCommandBuffer* command_buffer, SDL_GPURender
 	fragment_uniform[8]  = bias_rgba ? bias_rgba[0] : 0.0f;
 	fragment_uniform[9]  = bias_rgba ? bias_rgba[1] : 0.0f;
 	fragment_uniform[10] = bias_rgba ? bias_rgba[2] : 0.0f;
-	fragment_uniform[11] = 0.0f;
+	fragment_uniform[11] = s_encode_output ? 2.0f : 0.0f;
 
 	scissor = *dst_rect;
 	if (scissor_rect && !SDL_GetRectIntersection(scissor_rect, dst_rect, &scissor)) {
@@ -1413,7 +1441,7 @@ static int Aeron_DrawTexture(SDL_GPUCommandBuffer* command_buffer, SDL_GPURender
 /* Creates a device with the common feature contract used by both the optional
  * Vulkan FP16 attempt and the baseline retry. */
 static SDL_GPUDevice* Aeron_CreateGPUDeviceWithOptions(SDL_GPUShaderFormat   shader_formats,
-													   SDL_GPUVulkanOptions* vulkan_options) {
+													   void*                 vulkan_options) {
 	SDL_PropertiesID properties = SDL_CreateProperties();
 	SDL_GPUDevice*   device;
 	bool             properties_set;
@@ -1673,7 +1701,34 @@ int Aeron_Present(void) {
 		Aeron_ComputePresentationRect((int)swapchain_width, (int)swapchain_height, &content_rect);
 
 		SDL_zero(color_target);
-		color_target.texture = swapchain_texture;
+		SDL_GPUTexture* target_texture = swapchain_texture;
+		if (s_proxy_mode) {
+			if (!s_proxy || s_proxy_w != swapchain_width || s_proxy_h != swapchain_height) {
+				SDL_GPUTextureCreateInfo info;
+				SDL_zero(info);
+				info.type = SDL_GPU_TEXTURETYPE_2D;
+				info.format = g_aeron.swapchain_format;
+				info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+				info.width = swapchain_width;
+				info.height = swapchain_height;
+				info.layer_count_or_depth = 1;
+				info.num_levels = 1;
+				info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+				if (s_proxy)
+					SDL_ReleaseGPUTexture(g_aeron.gpu_device, s_proxy);
+				s_proxy = SDL_CreateGPUTexture(g_aeron.gpu_device, &info);
+				s_proxy_w = swapchain_width;
+				s_proxy_h = swapchain_height;
+			}
+			if (!s_proxy) {
+				Aeron_SetRenderError("Cannot create the sRGB proxy target");
+				AeronGpuDebug_Pop(command_buffer);
+				SDL_CancelGPUCommandBuffer(command_buffer);
+				return 0;
+			}
+			target_texture = s_proxy;
+		}
+		color_target.texture = target_texture;
 		color_target.clear_color =
 			(SDL_FColor) { g_aeron.clear_color_rgba[0] * output_rgb_scale,
 						   g_aeron.clear_color_rgba[1] * output_rgb_scale,
@@ -1704,7 +1759,7 @@ int Aeron_Present(void) {
 		borrowed_render_pass.owner            = &borrowed_command_buffer;
 		borrowed_render_pass.output_rgb_scale = output_rgb_scale;
 		SDL_zero(borrowed_render_target);
-		borrowed_render_target.color.texture   = swapchain_texture;
+		borrowed_render_target.color.texture   = target_texture;
 		borrowed_render_target.color.width     = (int)swapchain_width;
 		borrowed_render_target.color.height    = (int)swapchain_height;
 		borrowed_render_target.color.mip_count = 1;
@@ -1811,6 +1866,32 @@ int Aeron_Present(void) {
 		}
 		Aeron_DebugUiRecordDraws(command_buffer, render_pass);
 		SDL_EndGPURenderPass(render_pass);
+		if (s_proxy_mode) {
+			SDL_GPUColorTargetInfo encode_target;
+			SDL_GPURenderPass*     encode_pass;
+			SDL_Rect               full = { 0, 0, (int)swapchain_width, (int)swapchain_height };
+			const float            encode_bias[4] = { 0.0f, 0.0f, 0.0f, 2.0f };
+			SDL_zero(encode_target);
+			encode_target.texture = swapchain_texture;
+			encode_target.load_op = SDL_GPU_LOADOP_DONT_CARE;
+			encode_target.store_op = SDL_GPU_STOREOP_STORE;
+			encode_pass = SDL_BeginGPURenderPass(command_buffer, &encode_target, 1, NULL);
+			if (!encode_pass) {
+				Aeron_SetRenderError("SDL_BeginGPURenderPass failed for the sRGB encode pass");
+				present_ok = 0;
+			} else {
+				s_encode_output = 1;
+				if (!Aeron_DrawTexture(command_buffer, encode_pass, s_proxy, g_aeron.pixel_frame_nearest_sampler,
+									   s_real_format, (int)swapchain_width, (int)swapchain_height, 1,
+									   AERON_COLOR_SPACE_LINEAR_SRGB, 0, 1.0f, 0.0f, &full,
+									   AERON_LAYER_BLEND_OPAQUE, NULL, encode_bias, NULL)) {
+					Aeron_SetRenderError("sRGB encode pass failed");
+					present_ok = 0;
+				}
+				s_encode_output = 0;
+				SDL_EndGPURenderPass(encode_pass);
+			}
+		}
 		AeronGpuDebug_Pop(command_buffer);
 	}
 	AeronGpuDebug_Pop(command_buffer);

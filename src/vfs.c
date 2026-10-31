@@ -312,6 +312,9 @@ void AeronVfs_Init(AeronVfs* vfs, const AeronVfsConfig* config) {
 			Aeron_SetDefaultPath(vfs->user_root, sizeof(vfs->user_root), NULL);
 		}
 	}
+#ifdef __SWITCH__
+	Aeron_CopyString(vfs->user_root, sizeof(vfs->user_root), "/switch/openxw/user/");
+#endif
 	Aeron_NormalizePath(vfs->user_root);
 
 	if (config && config->temp_root) {
@@ -1005,6 +1008,9 @@ int AeronVfs_Rename(AeronVfs* vfs, AeronVfsRoot root, const char* old_path, cons
 								AERON_RESOLVE_MISSING_LAST)))
 		return 0;
 
+#ifdef __SWITCH__
+	SDL_RemovePath(new_host_path);
+#endif
 	if (!SDL_RenamePath(old_host_path, new_host_path)) {
 		SDL_PathInfo info;
 		int          resolved = 0;

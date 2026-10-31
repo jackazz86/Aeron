@@ -398,6 +398,9 @@ void Aeron_ControllersInit(void) {
 	int             count;
 	int             i;
 
+#ifdef __SWITCH__
+	return;
+#endif
 	controllers = SDL_GetJoysticks(&count);
 	if (!controllers) {
 		return;
